@@ -1,25 +1,21 @@
-
 # datobs
 
 <!-- badges: start -->
 <!-- badges: end -->
 
-The goal of datobs is to ...
+The goal of datobs is to manage data from environmental observatories. 
+
+The datobs package creates time series from environmental sensors, such as temperature and dissolved oxygen. 
 
 ## Installation
 
-You can install the development version of datobs like so:
-
-``` r
-# FILL THIS IN! HOW CAN PEOPLE INSTALL YOUR DEV PACKAGE?
-```
+Installation
+install.packages("devtools")
+devtools::install_github("SanchezCabeza/datobs")
 
 ## Example
 
-This is a basic example which shows you how to solve a common problem:
-
 ``` r
 library(datobs)
-## basic example code
+## Pending
 ```
-

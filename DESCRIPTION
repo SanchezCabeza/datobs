@@ -1,0 +1,13 @@
+Package: datobs
+Title: Coastal Observatory Data Processing Package (DATOS, OBS)
+Version: 0.1.0
+Authors@R: 
+    person("Prof. Joan-Albert", "Sanchez-Cabeza", , "jas2005@gmail.com", 
+    role = c("aut", "cre"))
+Description: Tools for parsing, cleaning, combining, flagging, and plotting environmental time series data from observatories like Mazatlan (e.g., HOBO loggers and other probes). Supports standardized file naming (e.g., mzt.1.1m.ot.20200101.20200202.csv) and handles multiple sensors/variables.
+Depends: R (>= 4.0.0)
+License: GPL (>= 3) + file LICENSE
+Encoding: UTF-8
+Imports: lubridate, dplyr, tools
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2

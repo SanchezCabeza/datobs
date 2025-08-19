@@ -24,7 +24,7 @@ parse_filename <- function(fileName, observatory = "mzt", stationNumber = 5,
   dates <- data[ , 1]
 
   # parse dates in YYYY-MM-DD HH:MM:SS format
-  dates2 <- as.POSIXct(dates, format = "%Y/%m/%d %H:%M:%S")
+  dates2 <- lubridate::ymd_hms(dates, format = "%Y/%m/%d %H:%M:%S")
   if (all(is.na(dates2))) stop(paste("Failed to parse all dates in", fileName))
 
   # Get min and max dates, format as YYYYMMDD

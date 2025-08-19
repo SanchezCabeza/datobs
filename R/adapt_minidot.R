@@ -1,21 +1,31 @@
 #### adapt minidot files ####
 # jasc 20250818
-# minidot samples are the result of combining woth proprietary software
+# minidot files  are the result of combining daily records with proprietary software
+# This function adapts format to the package structure: dateuts, tem, oxy, oxy.sat
 
 rm(list = ls())
 graphics.off()
 library(lubridate)
+library(datobs)
 wd <- "G:/Unidades compartidas/LCGC/1 SAMO/0.erddap/minidot/"
+output.dir = "./csv"
 
-#### read files ####
-setwd(wd)
-#files <- list.files()
-setwd("G:/Unidades compartidas/LCGC/1 SAMO/samo.20250423")
-file.name <- "minidot samo 54m 20250423.TXT"
+file.name <- list.files()
 
-df <- read.table(file.name, header = TRUE, sep = ",", skip = 8)
+i=1
+df <- read.table(file.name[i], header = TRUE, sep = ",", skip = 8)
 colnames(df) <- c("time.unix", "dateutc", "time.local", "battery",
                   "tem", "oxy", "oxy.sat", "q")
+#dateutc,oxy,tem,oxy.flag,tem.flag,oxy.sat
+df <- df[ , c("dateutc", "tem", "oxy", "oxy.sat")]
+dateutc <- ymd_hms(df$dateutc)
+
+# delete
+plot(dateutc, df$tem)
+
+aux <- clean_extremes_2var(df, columns = c("tem", "oxy"), n_check = 100, factor = 3)
+
+
 df$dateutc <- ymd_hms(df$dateutc)
 # clean end
 aux <- df
@@ -24,6 +34,17 @@ par(mar = c(4,4,1,1))
 plot(auxx$dateutc, auxx$tem, las = 1, pch = 20)
 plot(auxx$dateutc, auxx$oxy, las = 1, pch = 20)
 hist(auxx$oxy, breaks = 30) #, xlim = c(0.075, 0.085))
+
+
+
+#### new file names ####
+setwd(wd)
+i=1
+parse_filename(files[i], observatory = "samo", stationNumber = "boya",
+               depth = "8m", variables = "ot")
+
+
+
 
 # cut files. select first of each series
 day.sel <- which(date(aux$dateutc) == "2021-11-23")[1]

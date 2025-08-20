@@ -1,118 +1,122 @@
-#' Flag bad data in a time series with continuous 30-minute intervals
+#' Flag and interpolate time series data at regular intervals
 #'
-#' Creates a continuous 30-minute time series from a data frame with dateutc and tem.
-#' Interpolates tem for gaps ≤30 minutes using linear interpolation, leaves gaps >30 minutes
-#' as NA. Applies quality flags: 1 = Good, 2 = Quality Not Evaluated, 3 = Questionable/Suspect,
-#' 4 = Bad, 9 = Missing Data. Outputs dateutc as character (YYYY-MM-DD HH:MM:SS).
+#' This function resamples a time series dataset to a regular interval (e.g.,
+#' 30 minutes, 1 hour), interpolates gaps up to the interval size, and applies
+#' quality control flags to numeric variables. Flags are based on plausible
+#' ranges, z-score thresholds, and derivative thresholds.
 #'
-#' @param df Data frame with 'dateutc' (POSIXct) and 'tem' (numeric) columns.
-#' @param temp_range Numeric vector of min/max plausible temperatures (default: c(10, 40)).
-#' @param z_threshold Numeric z-score threshold for questionable data (default: 3).
-#' @param derivative_threshold Max value of derivative (default: 0.1).
-#' @return Data frame with dateutc (character), tem, and tem.flag columns.
-#' @import dplyr
-#' @import lubridate
-#' @export
+#' @param df Data frame with at least a `dateutc` column (POSIXct) and one or more numeric variables.
+#' @param interval Character. Resampling interval (passed to [base::seq.POSIXt], e.g. `"30 min"`, `"1 hour"`).
+#' @param ranges Named list of numeric vectors giving plausible min/max ranges
+#'   for variables (e.g., `list(oxy = c(0, 20), tem = c(5, 40))`).
+#'   Variables not listed will not be range-checked.
+#' @param z_threshold Numeric. Z-score threshold for flagging questionable data (default: `3`).
+#' @param derivative_thresholds Named list of numeric values giving derivative
+#'   thresholds (units per second) for each variable.
+#'
+#' @return A data frame with `dateutc`, interpolated variables, and a `.flag`
+#'   column for each variable.
+#'   Flags:
+#'   - `1 = Good`
+#'   - `3 = Questionable/Suspect`
+#'   - `4 = Bad`
+#'   - `9 = Missing`
+#'
 #' @examples
 #' \dontrun{
-#' cleaned <- combine_timeseries(pattern = "mzt.*\\.csv$")
-#' flagged <- flag_bad_data(cleaned)
-#' write.csv(flagged, "mzt_flagged.csv", row.names = FALSE)
+#' flagged <- flag_timeseries(
+#'   df = combined,
+#'   interval = "1 hour",
+#'   ranges = list(oxy = c(0, 400), tem = c(5, 40)),
+#'   derivative_thresholds = list(oxy = 0.2, tem = 0.1)
+#' )
+#' head(flagged)
 #' }
-flag_bad_data <- function(df, temp_range = c(10, 40),
-                          z_threshold = 3, derivative_threshold = 0.1) {
-  # # test
-  # df <- combined
-  # temp_range = c(10, 40)
-  # z_threshold = 3
-  # derivative_threshold = 0.1
+#'
+#' @importFrom dplyr arrange left_join mutate select
+#' @importFrom lubridate floor_date ceiling_date
+#' @importFrom stats approx sd
+#' @export
+flag_timeseries <- function(df,
+                            interval = "30 min",
+                            ranges = list(oxy = c(0, 400), tem = c(5, 40)),
+                            z_threshold = 3,
+                            derivative_thresholds = list(oxy = 0.2, tem = 0.1)) {
+  if (!inherits(df$dateutc, "POSIXct")) df$dateutc <- lubridate::ymd_hms(df$dateutc)
+df <- dplyr::arrange(df, dateutc)
 
-  # Validate input
-  if (!all(c("dateutc", "tem") %in% names(df))) stop("Data frame must contain 'dateutc' and 'tem' columns")
-  if (!inherits(df$dateutc, "POSIXct")) stop("dateutc must be POSIXct")
+  # Build full continuous timeline
+  start_time <- lubridate::floor_date(min(df$dateutc), unit = interval)
+  end_time   <- lubridate::ceiling_date(max(df$dateutc), unit = interval)
+  full_times <- seq.POSIXt(from = start_time, to = end_time, by = interval)
+  result <- data.frame(dateutc = full_times)
 
-  # Step 1: Sort by dateutc
-  df <- df %>% arrange(dateutc)
+  # Identify numeric variables to process
+  vars <- names(df)[sapply(df, is.numeric)]
+  vars <- setdiff(vars, "dateutc")
 
-  # Step 2: Identify segments (gaps > 30 min = 1800 sec)
-  df$diff_sec <- c(NA, difftime(df$dateutc[-1], df$dateutc[-nrow(df)], units = "secs"))
-  df$segment <- cumsum(df$diff_sec > 1800 | is.na(df$diff_sec))
-
-  # Step 3: Interpolate within segments (gaps ≤ 30 min)
-  full_df_list <- lapply(unique(df$segment), function(seg) {
-    seg_df <- df %>% filter(segment == seg)
-    start_time <- min(seg_df$dateutc)
-    start_time <- floor_date(start_time, unit = "30 minutes")
-    end_time <- max(seg_df$dateutc)
-    end_time <- ceiling_date(end_time, unit = "30 minutes")
-    full_times <- seq.POSIXt(from = start_time, to = end_time, by = "30 min")
-    if (nrow(seg_df) > 1 && length(full_times) > 1) {
-      interpolated <- approx(seg_df$dateutc, seg_df$tem, xout = full_times, method = "linear")
-      data.frame(dateutc = full_times, tem = interpolated$y)
+  # Interpolation helper
+  interpolate_var <- function(var) {
+    non_na_idx <- !is.na(df[[var]])
+    if (sum(non_na_idx) >= 2) {
+      interpolated <- stats::approx(
+        x = df$dateutc[non_na_idx],
+        y = df[[var]][non_na_idx],
+        xout = full_times,
+        method = "linear",
+        rule = 2
+      )
+      out <- data.frame(dateutc = interpolated$x, value = interpolated$y)
     } else {
-      data.frame(dateutc = start_time, tem = seg_df$tem[1])
+      out <- data.frame(dateutc = full_times, value = NA_real_)
     }
-  })
+    names(out)[2] <- var
+    return(out)
+  }
 
-  # Step 4: Combine segments
-  full_df <- do.call(rbind, full_df_list)
+  # Apply interpolation for each variable
+  for (var in vars) {
+    iv <- interpolate_var(var)
+    result <- dplyr::left_join(result, iv, by = "dateutc")
+  }
 
-  # Step 5: Create continuous 30-minute sequence and merge
-  overall_start <- min(full_df$dateutc)
-  overall_end   <- max(full_df$dateutc)
-  overall_times <- seq.POSIXt(from = overall_start, to = overall_end, by = "30 min")
-  overall_df    <- data.frame(dateutc = overall_times)
-  full_df       <- overall_df %>% left_join(full_df, by = "dateutc")
-  plot(full_df$dateutc, full_df$tem, pch = ".")
+  # Apply QC checks
+  apply_quality_checks <- function(df, var) {
+    flag_col <- paste0(var, ".flag")
+    df[[flag_col]] <- ifelse(is.na(df[[var]]), 9, 1)
 
-  # Step 6: Initialize flags (1 = Good, 9 = Missing)
-  full_df <- full_df %>% mutate(tem.flag = ifelse(is.na(tem), 9, 1))
-  table(full_df$tem.flag)
-  summary(full_df$tem.flag)
+    # Range checks
+    if (var %in% names(ranges)) {
+      range <- ranges[[var]]
+      df[[flag_col]] <- ifelse(
+        df[[flag_col]] == 1 & (df[[var]] < range[1] | df[[var]] > range[2]),
+        4, df[[flag_col]]
+      )
+    }
 
-  ## Step 7: tem.flag bad data (4 = Bad, 3 = Questionable/Suspect, 1 = Good)
-  # create columns for new filters: z-score, derivative
-  full_df <- full_df %>%
-    mutate(z_score = (tem - mean(tem, na.rm = TRUE)) / sd(tem, na.rm = TRUE),
-           # derivative in °C/min
-           derivative = c(0, diff(full_df$tem)/as.numeric(diff(full_df$dateutc))))
-  table(full_df$tem.flag)
-  summary(full_df$tem.flag)
+    # Z-score check
+    z_score <- (df[[var]] - mean(df[[var]], na.rm = TRUE)) /
+      stats::sd(df[[var]], na.rm = TRUE)
+    df[[flag_col]] <- ifelse(
+      df[[flag_col]] == 1 & abs(z_score) > z_threshold,
+      3, df[[flag_col]]
+    )
 
-  # range interval
-  full_df <- full_df %>%
-    mutate(tem.flag = ifelse(tem.flag == 1 & (tem < temp_range[1] | tem > temp_range[2]), 4, tem.flag))
-  table(full_df$tem.flag)
-  summary(full_df$tem.flag)
+    # Derivative check
+    if (var %in% names(derivative_thresholds)) {
+      derivative <- c(0, diff(df[[var]]) / as.numeric(diff(df$dateutc)))
+      df[[flag_col]] <- ifelse(
+        df[[flag_col]] == 1 & abs(derivative) > derivative_thresholds[[var]],
+        3, df[[flag_col]]
+      )
+    }
 
-  #z-score
-  summary(full_df$z_score) # no extremes 3 sigma
-  hist(full_df$z_score, breaks = 30)
-  full_df <- full_df %>%
-    mutate(tem.flag = ifelse(tem.flag == 1 & abs(z_score) > z_threshold, 3, tem.flag))
-  table(full_df$tem.flag)
-  summary(full_df$tem.flag)
+    return(df)
+  }
 
-  # derivative
-  #plot(full_df$dateutc, full_df$derivative, pch = 20)
-  #abline(h = c(-0.1, -0.05, 0, 0.05, 0.1)) # cut 0.1
-  summary(full_df$derivative)
-  hist(full_df$derivative, breaks = 30)
-  full_df <- full_df %>%
-    mutate(tem.flag = ifelse(tem.flag == 1 & abs(derivative) > derivative_threshold, 3, tem.flag))
-  table(full_df$tem.flag)
-  summary(full_df$tem.flag)
+  for (var in vars) {
+    result <- apply_quality_checks(result, var)
+  }
 
-  # Step 8: Convert dateutc to character
-  full_df <- full_df %>% mutate(dateutc = format(dateutc, "%Y-%m-%d %H:%M:%S"))
-  summary(full_df$tem.flag)
-
-  # Step 9: Remove helper columns
-  full_df <- full_df %>% select(dateutc, tem, tem.flag)
-
-  # Summary
-  cat("Flagged rows:", table(full_df$tem.flag), "\n")
-  #cat("Total rows:", nrow(full_df), ", Missing (flag=9):", sum(full_df$flag == 9), "\n")
-
-  return(full_df)
+  return(result)
 }

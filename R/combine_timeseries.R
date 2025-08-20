@@ -1,65 +1,51 @@
-#' Combine time series data from multiple CSV files into a single clean data frame
+#' Combine time series data with arbitrary variables from multiple CSV files
 #'
 #' Reads all CSV files matching a pattern, combines into a single time series ordered by dateutc,
 #' and removes duplicate dateutc records (keeping the first occurrence). Assumes the first column
-#' is dateutc (%Y/%m/%d %H:%M:%S) and the second is tem. Handles malformed dates by attempting
-#' alternative formats.
+#' is a datetime field (`dateutc`, format: %Y/%m/%d %H:%M:%S or similar). Remaining columns are
+#' variables of interest (e.g., oxy, tem, sal, etc.).
 #'
 #' @param pattern File name pattern to match (default: ".csv" for all CSV files).
 #' @param date_col Name of the date column (default: "dateutc").
-#' @param value_col Name of the value column (default: "tem").
-#' @return A cleaned data frame with unique, ordered dateutc records.
+#' @return A cleaned data frame with unique, ordered `dateutc` records and all variables.
 #' @export
 #' @examples
 #' \dontrun{
-#' cleaned <- combine_timeseries(pattern = "mzt.*\\.csv$")
-#' write.csv(cleaned, "mzt_combined_cleaned.csv", row.names = FALSE)
+#' cleaned <- combine_timeseries(pattern = "samo.*\\.csv$")
+#' write.csv(cleaned, "samo_combined_cleaned.csv", row.names = FALSE)
 #' }
 combine_timeseries <- function(pattern = ".csv",
-                               date_col = "dateutc", value_col = "tem") {
+                               date_col = "dateutc") {
   # # test
-  # setwd(wd.clean)
-  # pattern <-".csv"
+  # pattern = "54m"
   # date_col = "dateutc"
-  # value_col = "tem"
+  # i=1
 
   # List CSV files
   files <- list.files(pattern = pattern)
   if (length(files) == 0) stop("No files found matching pattern")
-  # # test
-  # i = 1
-  # f = files[i]
 
-  # Read each file
   data_list <- lapply(files, function(f) {
     cat("File:", f)
     data <- read.csv(f, stringsAsFactors = FALSE, fileEncoding = "UTF-8")
-
-    # Debug: Print column names
     cat(", columns: ", paste(names(data), collapse = ", "), "\n")
 
     # Validate columns
     if (!(date_col %in% names(data))) stop(paste("Date column", date_col, "not found in", f))
-    if (!(value_col %in% names(data))) stop(paste("Value column", value_col, "not found in", f))
 
-    # Parse dateutc, handling malformed dates
-    tryCatch({
-      data[[date_col]] <- as.POSIXct(data[[date_col]], format = "%Y/%m/%d %H:%M:%S", tz = "UTC")
-    }, error = function(e) {
-      cat("Warning: Date parsing failed in", f, ", trying alternative format\n")
-      data[[date_col]] <- as.POSIXct(data[[date_col]], format = "%Y-%m-%d", tz = "UTC")
-      if (any(is.na(data[[date_col]]))) {
-        na_rows <- is.na(data[[date_col]])
-        cat("Removed", sum(na_rows), "rows with invalid dates in", f, "\n")
-        data <- data[!na_rows, ]
-      }
-    })
-
-    # Keep only dateutc and tem columns
-    data <- data[, c(date_col, value_col), drop = FALSE]
-    names(data) <- c("dateutc", "tem")  # Standardize for consistency
+    # Parse date
+    data[[date_col]] <- lubridate::ymd_hms(data[[date_col]])
+    #data <- data[!is.na(data[[date_col]]), , drop = FALSE]
+    # Rename first column explicitly to "dateutc"
+    #names(data)[names(data) == date_col] <- "dateutc"
     data
   })
+
+  # Ensure all files have the same columns
+  col_sets <- lapply(data_list, names)
+  if (length(unique(sapply(col_sets, paste, collapse = "|"))) > 1) {
+    stop("Not all CSV files have the same column names in the same order")
+  }
 
   # Combine into one data frame
   combined <- do.call(rbind, data_list)
@@ -68,14 +54,13 @@ combine_timeseries <- function(pattern = ".csv",
   # Sort by dateutc
   combined <- combined[order(combined$dateutc), ]
 
-  # Remove duplicates by dateutc, keeping first
+  # Remove duplicates by dateutc
   dup_count <- sum(duplicated(combined$dateutc))
   combined <- combined[!duplicated(combined$dateutc), ]
 
-  # Print summary
   cat(sprintf("Combined %d files, %d unique rows after removing %d duplicates\n",
               length(files), nrow(combined), dup_count))
 
-  # Return the clean data frame
   return(combined)
 }
+

@@ -43,7 +43,7 @@ flag_timeseries <- function(df,
                             z_threshold = 3,
                             derivative_thresholds = list(oxy = 0.2, tem = 0.1)) {
   if (!inherits(df$dateutc, "POSIXct")) df$dateutc <- lubridate::ymd_hms(df$dateutc)
-df <- dplyr::arrange(df, dateutc)
+  df <- dplyr::arrange(df, dateutc)
 
   # Build full continuous timeline
   start_time <- lubridate::floor_date(min(df$dateutc), unit = interval)

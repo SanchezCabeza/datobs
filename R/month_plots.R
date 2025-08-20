@@ -40,7 +40,7 @@ month_plots <- function(file, column = 2,
   # First column must be dateutc in yyyy/mm/dd hh:mm:ss
   date_col <- names(data)[1]
   data[[date_col]] <- trimws(data[[date_col]])
-  data[[date_col]] <- as.POSIXct(data[[date_col]], format = "%Y/%m/%d %H:%M:%S", tz = "UTC")
+  data[[date_col]] <- lubridate::ymd_hms(data[[date_col]], tz = "UTC")
 
   if (any(is.na(data[[date_col]]))) {
     stop("Error: dateutc column contains invalid values or wrong format (yyyy/mm/dd hh:mm:ss)")

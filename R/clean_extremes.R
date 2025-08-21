@@ -5,7 +5,7 @@
 #' Iterates until no rows are removed or `max_iter` reached. Middle rows are never touched.
 #'
 #' @param data data.frame or CSV path
-#' @param columns character or integer vector of columns to check (numeric columns)
+#' @param columns integer vector of columns to check (numeric columns)
 #' @param n_check integer, rows in each edge window (default 48)
 #' @param factor numeric multiplier for threshold (default 3)
 #' @param robust logical; if TRUE use median/MAD (default TRUE)
@@ -14,7 +14,9 @@
 #' @return cleaned data.frame with same columns
 #' @export
 clean_extremes <- function(data,
+                           colnames = c("dateutc", "tem"),
                            columns = c("tem"),
+                           keep_columns = 3,
                            n_check = 48,
                            factor = 3,
                            robust = TRUE,
@@ -27,26 +29,14 @@ clean_extremes <- function(data,
   stopifnot(is.data.frame(data))
   if (ncol(data) < 1) stop("Data must have at least one column.")
 
-  # Standardize first column name
-  names(data)[1] <- "dateutc"
-
-  # Resolve columns to names and validate numeric
-  col_names <- vapply(columns, function(col) {
-    if (is.numeric(col)) {
-      if (col <= 0 || col > ncol(data)) stop("Invalid column index: ", col)
-      names(data)[col]
-    } else if (is.character(col)) {
-      if (!col %in% names(data)) stop("Invalid column name: ", col)
-      col
-    } else stop("`columns` must be names or indices.")
-  }, character(1))
-  for (cn in col_names) if (!is.numeric(data[[cn]])) stop("Column ", cn, " must be numeric.")
-
+  # set column names
+  colnames(data) <- colnames
+  data <- data[ , keep_columns]
   n0 <- nrow(data)
-  if (n0 == 0) return(data)
+  if (n0 == 0) stop("No data in file.")
 
   # Remove rows with NA in *any* specified column (marks)
-  keep_na <- rowSums(is.na(data[, col_names, drop = FALSE])) == 0
+  keep_na <- rowSums(is.na(data[, colnames, drop = FALSE])) == 0
   removed_na <- sum(!keep_na)
   data <- data[keep_na, , drop = FALSE]
   if (nrow(data) == 0) {
@@ -88,7 +78,7 @@ clean_extremes <- function(data,
 
     to_remove <- integer(0)
 
-    for (cn in col_names) {
+    for (cn in columns) {
       v <- data[[cn]]
 
       # START window (fixed original indices, current alive subset)

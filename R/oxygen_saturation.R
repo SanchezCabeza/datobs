@@ -34,7 +34,7 @@
 #' calc_oxygen(temp, oxy, depth, altitude)
 #'
 #' @export
-calc_oxygen <- function(temp, oxy, depth, altitude) {
+oxygen_saturation <- function(temp, oxy, depth, altitude) {
 
   # Convert altitude (m) to barometric pressure (hPa) using empirical formula
   P0 <- 1013.25  # hPa at sea level
